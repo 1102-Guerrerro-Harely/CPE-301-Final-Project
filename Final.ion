@@ -1,0 +1,319 @@
+//Harely Guerrero 
+//Swap-cooler
+//timer function included but timer hardare missing
+
+
+
+//Libraries 
+#include <Servo.h>
+#include <TimeLib.h>
+#include <Wire.h>
+#include <LiquidCrystal.h>
+#include <SimpleDHT.h>
+
+// Define pin numbers, thresholds
+#define START_BUTTON_PIN 2
+#define STOP_BUTTON_PIN 3
+#define RESET_BUTTON_PIN 4
+#define HUMIDITY_SENSOR_PIN A0
+#define TEMPERATURE_SENSOR_PIN A1
+#define WATER_LEVEL_SENSOR_PIN A2
+volatile unsigned char* myPORTA = (unsigned char*) 0x22; 
+volatile unsigned char* myDDRA  = (unsigned char*) 0x21;
+volatile unsigned char* myPINA  = (unsigned char*) 0x20;
+
+volatile unsigned char* myPORTB = (unsigned char*) 0x25; 
+volatile unsigned char* myDDRB  = (unsigned char*) 0x24;
+volatile unsigned char* myPINB  = (unsigned char*) 0x23;
+
+volatile unsigned char* myPORTE = (unsigned char*) 0x2E; 
+volatile unsigned char* myDDRE  = (unsigned char*) 0x2D;
+volatile unsigned char* myPINE  = (unsigned char*) 0x2C;
+
+volatile unsigned int  *myTCNT1  = (unsigned  int *) 0x84;
+volatile unsigned char *myTCCR1A = (unsigned char *) 0x80;
+volatile unsigned char *myTCCR1B = (unsigned char *) 0x81;
+volatile unsigned char *myTCCR1C = (unsigned char *) 0x82;
+volatile unsigned char *myTIFR1  = (unsigned char *) 0x36;
+volatile unsigned char *myTIMSK1 = (unsigned char *) 0x6F
+volatile unsigned char* myADCSRA = (unsigned char*) 0x7A;
+volatile unsigned char* myADCSRB = (unsigned char*) 0x7B;
+volatile unsigned char* myADMUX  = (unsigned char*) 0x7C;
+volatile unsigned int* myADCDATA = (unsigned int*)  0x78;
+
+
+
+
+// Define state machine states
+enum CoolerState {
+  DISABLED,
+  IDLE,
+  ERROR_STATE,
+  RUNNING
+};
+
+CoolerState currentState = DISABLED;
+volatile unsigned char* myADCSRA = (unsigned char*) 0x7A;
+volatile unsigned char* myADCSRB = (unsigned char*) 0x7B;
+volatile unsigned char* myADMUX  = (unsigned char*) 0x7C;
+volatile unsigned int* myADCDATA = (unsigned int*)  0x78;
+
+  void ADC(){
+   
+  *myADCSRA |= 0b10000000;
+  *myADCSRA &= 0b11011111;
+  *myADCSRA &= 0b11110111;
+  *myADCSRA &= 0b11111000;
+  *myADCSRB &= 0b11110111;
+  *myADCSRB &= 0b11111000;
+  *myADMUX  &= 0b01111111;
+  *myADMUX  |= 0b01000000;
+  *myADMUX  &= 0b11011111;
+  *myADMUX  &= 0b11100000;
+
+  }
+
+  void LED(){
+  // blue = pin 1 
+  // red = pin 2
+  // green = pin 3 
+  // yellow = pin 4 
+  *myDDRE = 0b00001111; 
+  *myPORTE = 0b00000000;
+  }
+
+  //Display;
+  
+  LiquidCrystal lcd( 5, 4, 3, 2);
+  void clear_lcd(){
+  lcd.clear(); // Clear the LCD screen
+  lcd.setCursor(0, 0); // Set cursor to the beginning of the first line
+  lcd.print("                "); // Print spaces to clear the line
+  lcd.setCursor(0, 1); // Set cursor to the beginning of the second line
+  lcd.print("                "); // Print spaces to clear the line
+  }
+  
+  void values_lcd(){
+  lcd.setCursor(6,0);
+  lcd.print("     ");
+  lcd.setCursor(9,1);
+  lcd.print("     ");
+  }
+
+  void fill water(){
+  clear_lcd();
+  lcd.setCursor(0,0);
+  lcd.print("LOW WATER");
+  lcd.setCursor(0,1);
+  lcd.print("FILL SOON");  
+
+  }
+
+
+  void fan(){
+    void fan_setup() {
+  //pins 17-21 as outputs
+  *myDDRA |= 0b11111000; // Pins 17-21 as out (PA5-PA1)
+
+  // Set fan
+  *myPORTA |= 0b00001000; // pin 19 HIGH
+  *myPORTA &= 0b11110111; // pin 20 LOW
+}
+
+
+  }
+
+unsigned long previousMillis = 0; // Variable to store the last time the timer was updated
+const long interval = 60000; // Interval in milliseconds (60 seconds)
+  void timer(){
+    unsigned long currentMillis = millis(); // Get the current time
+
+  if (currentMillis - previousMillis >= interval) { // Check if the interval has passed
+    previousMillis = currentMillis; // Update the previous time stamp
+    // Perform actions here based on the timer interval (e.g., update display, control cooler, etc.)
+  }
+  
+  }
+
+  void button(){
+  *myDDRJ = 0b00000000;
+  *myPORTJ = 0b00000011;
+ 
+  }
+
+  
+void setup() {
+
+  button();
+
+  ADC();
+
+  LED();
+
+  fan();
+
+  timer();
+
+  vent.write(32)
+  vent.attach(19);
+  
+
+  // Set initial state and start monitoring
+  currentState = DISABLED;
+  monitorTemperatureHumidity();
+  monitorWaterLevel();
+}
+
+void loop() {
+  switch (currentState) {
+    case DISABLED:
+      handleDisabledState();
+      break;
+    case IDLE:
+      handleIdleState();
+      break;
+    case ERROR_STATE:
+      handleErrorState();
+      break;
+    case RUNNING:
+      handleRunningState();
+      break;
+    default:
+      break;
+  }
+}
+bool error_state = false;
+bool idle_state = false;
+bool running_state = false;
+void handleDisabledState() {
+  
+  const int startButtonPin = 15; // Pin for the start button
+  const int yellowLEDPin = 1;   // Pin for the yellow LED
+
+  pinMode(startButtonPin, INPUT_PULLUP); // Enable internal pull-up resistor for the start button
+  pinMode(yellowLEDPin, OUTPUT);        // Set yellow LED pin as output
+  
+  digitalWrite(yellowLEDPin, HIGH);     // Turn on the yellow LED
+  
+  while (true) {
+    if (digitalRead(startButtonPin) == LOW) {
+      // Start button is pressed, transition to IDLE state
+      digitalWrite(yellowLEDPin, LOW);  // Turn off the yellow LED
+      break; // Exit the disabled state loop
+    }
+
+    delay(100); 
+  }
+  attachInterrupt(digitalPinToInterrupt(START_BUTTON_PIN), startButtonISR, CHANGE);
+  
+  // Continuously check for transitions or events triggering state changes
+  while (currentState == DISABLED) {
+    void handleDisabledState()//ower mode to conserve resources
+    if (digitalRead(startButtonPin) == LOW) {
+      currentState = IDLE;
+  }
+
+void handleIdleState() {
+   greenLEDPin = 3;     // Pin for the green LED
+  const int waterSensorPin = A0; // Analog pin for water level sensor
+
+  pinMode(greenLEDPin, OUTPUT); // Set green LED pin as output
+
+  digitalWrite(greenLEDPin, HIGH); // Turn on the green LED
+  
+  while (true) {
+    // Continuously monitor temperature, humidity, and water level
+    monitorTemperatureHumidity();
+    monitorWaterLevel(waterSensorPin);
+    delay(60000); // Update every minute
+  }
+}
+
+void handleErrorState() {
+  // Turn on RED LED
+  *myPORTE &= 0b00000000; // Turn off all LEDs
+  *myPORTE |= 0b00000100; // Turn on RED LED (pin 2)
+
+  // Display error message on LCD 
+  displayErrorMessageOnLCD();
+
+  // Use the reset button to transition back to IDLE state if conditions are met
+  if (reset_button_pressed && water_above_threshold) {
+    // Transition back to IDLE state
+    *myPORTE &= 0b00000000; // Turn off all LEDs
+    idle_state = true;
+    error_state = false;
+  }
+  displayErrorMessageOnLCD();
+  
+  // Use the reset button to transition back to IDLE state if conditions are met
+ =
+  if (reset_button_pressed && water_above_threshold) {
+    // Transition back to IDLE state
+    *myPORTG &= 0b11011111; // Turn off RED LED
+    idle_state = true;
+    error_state = false;
+}
+
+void handleRunningState() {
+  *myPORTA |= 0b00001000; //fan turns on
+  if (temperature_below_threshold) {
+    // Transition to IDLE state
+    *myPORTA &= 0b11110111; // Turn off the fan motor
+    idle_state = true;
+    running_state = false;
+  }
+  
+  if (water_too_low) {
+    // Transition to ERROR state
+    *myPORTA &= 0b11110111; // Turn off the fan motor
+    error_state = true;
+    running_state = false;
+  }
+}
+
+void monitorTemperatureHumidity() {
+  // Function to continuously monitor and report temperature/humidity
+  // Update LCD screen once per minute
+  
+  unsigned long previousMillis = 0;
+  const long interval = 60000; // 1 minute interval
+
+  while (true) {
+    unsigned long currentMillis = millis();
+
+    if (currentMillis - previousMillis >= interval) {
+      previousMillis = currentMillis;
+
+      // Read temperature and humidity values
+      float temperatureValue = readTemperature();
+      float humidityValue = readHumidity();
+
+      // Display temperature and humidity on the LCD screen
+      displayTemperatureHumidityOnLCD(temperatureValue, humidityValue);
+    }
+  }
+}
+
+void monitorWaterLevel() {
+
+  while (true) {
+    // Read the water level sensor value
+    int waterLevel = analogRead(waterLevelPin);
+
+    if (waterLevel < THRESHOLD_LOW) {
+      THRESHOLD_LOW=1;
+      // Transition to ERROR state or perform necessary actions
+        displayErrorMessageOnLCD();
+    } else {
+      // Water level is within acceptable range
+       handleIdleState();
+    }
+    delay(1000); // 1 second delay between readings
+  }
+}
+
+
+
+
+
